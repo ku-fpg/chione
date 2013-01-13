@@ -385,21 +385,23 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
             goodLinkCode (URLResponse [] _) = False
             goodLinkCode (URLResponse xs _) = last xs == 200
 
-        let findBadLinks :: LinkData [String] -> LinkData [String]
+            -- bad links get False, good links get true
+            -- should be called findGoodLinks
+        let findBadLinks :: LinkData [String] -> LinkData [(Bool,String)]
             findBadLinks link = link
-                { ld_localURLs    = filter (`notElem` good_local_links) $ ld_localURLs link
-                , ld_remoteURLs = filter (\ url -> case lookup url external_links of
+                { ld_localURLs    = map (\ x -> (x `elem` good_local_links,x)) $ ld_localURLs link
+                , ld_remoteURLs = map (\ url -> case lookup url external_links of
                                                        Nothing -> error "should never happen! (all links looked at)"
-                                                       Just resp -> not (goodLinkCode resp))
+                                                       Just resp -> (goodLinkCode resp,url))
                                 $ ld_remoteURLs link
                 }
 
             markupCount :: [a] -> HTML
             markupCount = text . show . length
 
-            markupCount' :: [a] -> HTML
+            markupCount' :: [(Bool,a)] -> HTML
             markupCount' xs = element "span" [attr "class" $ "badge " ++ label] $ text (show len)
-                 where len = length xs
+                 where len = length $ filter (\ (b,_) -> not b) xs
                        label = if len == 0 then "badge-success" else "badge-important"
 
         let up txt tag = element "span" [attr "class" $ "badge badge-" ++ tag] txt
@@ -415,6 +417,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
               where
                  tick = element "i" [attr "class" "icon-ok icon-white"] $ zero --  icon-white"] $ zero
 
+                 -- TODO: checked_links
         let bad_links = map findBadLinks links
 
             br = element "br" [] mempty
@@ -441,20 +444,24 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                           , element "td" [attr "style" "text-align: right"] $ text $ show $ ld_bytes page
                           , element "td" [attr "style" "text-align: right"] $ text $ show $ ld_wc page
                           , element "td" [attr "style" "text-align: center"] $ showUpload $ ld_match page
-                          , element "td" [attr "style" "text-align: right"] $ ld_localURLs page
-                          , element "td" [attr "style" "text-align: right"] $ ld_remoteURLs page
-                          , element "td" [attr "style" "text-align: right"] $ ld_localURLs page_bad
-                          , element "td" [attr "style" "text-align: right"] $ ld_remoteURLs page_bad
+                          , element "td" [attr "style" "text-align: right"] $ markupCount $ ld_localURLs $ page
+                          , element "td" [attr "style" "text-align: right"] $ markupCount $ ld_remoteURLs $ page
+                          , element "td" [attr "style" "text-align: right"] $ markupCount' $ ld_localURLs $ page
+                          , element "td" [attr "style" "text-align: right"] $ markupCount' $ ld_remoteURLs $ page
                           , element "td" [] $ mconcat
                                 [ text bad <> br
-                                | bad <- ld_localURLs page_bad' ++ ld_remoteURLs page_bad'
+                                | (False,bad) <- ld_localURLs page ++ ld_remoteURLs page
                                 ]
 
                           ]
+                        | (n,page) <- [1..] `zip` bad_links
+
+{-
                         | (n,page,page_bad,page_bad') <- zip4 [1..]
                                                     (map (fmap markupCount) links)
                                                     (map (fmap markupCount') bad_links)
                                                     bad_links
+-}
                         ]
 
         let colorURLCode :: URLResponse -> HTML
