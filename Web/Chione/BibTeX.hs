@@ -89,6 +89,6 @@ getBibTexCitationTag (BibTeXCitation _ b _) = b
 tagToFileName :: String -> String
 tagToFileName nm = concatMap fn nm -- ++ ".html"
   where
-          fn ':' = "_"
+          fn ':' = "-"
           fn o   = [o]
 
