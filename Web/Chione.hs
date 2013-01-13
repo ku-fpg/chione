@@ -458,7 +458,10 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
 
                           ]
                         | (n,page) <- [1..] `zip`
-                                reverse (sortBy (\ a b -> errorCount a `compare` errorCount b) checked_links)
+                                ( sortBy (\ a b -> errorCount b `compare` errorCount a)
+                                $ sortBy (\ a b -> ld_pageName a `compare` ld_pageName b)
+                                $ checked_links
+                                )
 
 {-
                         | (n,page,page_bad,page_bad') <- zip4 [1..]
