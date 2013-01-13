@@ -475,6 +475,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                               else "badge-important"
 
         let timing (_,URLResponse _ t1) (_,URLResponse _ t2) = t1 `compare` t2
+        let correctness (_,u1) (_,u2) = goodLinkCode u1 `compare` goodLinkCode u2
 
         let link_tabel = element "table" [] $ mconcat $
                         [ element "tr" [] $ mconcat
@@ -493,13 +494,36 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                             $ colorURLCode resp
                           , element "td" [attr "style" "text-align: right"] $ text $ show tm
                           ]
-                        | (n,(url,resp@(URLResponse _ tm))) <- zip [1..] $ sortBy timing external_links
+                        | (n,(url,resp@(URLResponse _ tm))) <- zip [1..]
+                                        $ sortBy correctness
+                                        $ sortBy timing
+                                        $ external_links
                         ]
 
         let f = element "div" [attr "class" "row"] . element "div" [attr "class" "span10  offset1"]
 
+        let summary_table =
+                  element "div" [attr "class" "row"] . element "div" [attr "class" "span4"]
+                $ element "table" [] $ mconcat $
+                        [ element "tr" [] $ mconcat
+                          [ element "th" [] $ text title
+                          , element "td" [attr "style" "text-align: right"] $ text $ txt ]
+                        | (title,txt) <-
+                                [ ("Local Pages", show $ length $ links)
+                                , ("External Links",show $ length $ external_links)
+                                , ("Broken Internal Links",show $ length $ nub $ concat $  map ld_localURLs bad_links)
+                                , ("Broken External Links",show $ length $
+                                                           [ ()
+                                                           | (_,url) <- external_links
+                                                           , not (goodLinkCode url)])
+                                ]
+
+                        ]
+
         return $ f $ mconcat
-                [ element "h2" [] $ text "Pages"
+                [ element "h2" [] $ text "Summary"
+                , summary_table
+                , element "h2" [] $ text "Pages"
                 , page_tabel
                 , element "h2" [] $ text "External URLs"
                 , link_tabel
