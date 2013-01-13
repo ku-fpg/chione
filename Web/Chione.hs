@@ -386,9 +386,8 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
             goodLinkCode (URLResponse xs _) = last xs == 200
 
             -- bad links get False, good links get true
-            -- should be called findGoodLinks
-        let findBadLinks :: LinkData [String] -> LinkData [(Bool,String)]
-            findBadLinks link = link
+        let findGoodLinks :: LinkData [String] -> LinkData [(Bool,String)]
+            findGoodLinks link = link
                 { ld_localURLs    = map (\ x -> (x `elem` good_local_links,x)) $ ld_localURLs link
                 , ld_remoteURLs = map (\ url -> case lookup url external_links of
                                                        Nothing -> error "should never happen! (all links looked at)"
@@ -417,8 +416,12 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
               where
                  tick = element "i" [attr "class" "icon-ok icon-white"] $ zero --  icon-white"] $ zero
 
-                 -- TODO: checked_links
-        let bad_links = map findBadLinks links
+        let errorCount page = length
+                       [ ()
+                       | (False,_) <- ld_localURLs page ++ ld_remoteURLs page
+                       ]
+
+        let checked_links = map findGoodLinks links
 
             br = element "br" [] mempty
 
@@ -454,7 +457,8 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                                 ]
 
                           ]
-                        | (n,page) <- [1..] `zip` bad_links
+                        | (n,page) <- [1..] `zip`
+                                reverse (sortBy (\ a b -> errorCount a `compare` errorCount b) checked_links)
 
 {-
                         | (n,page,page_bad,page_bad') <- zip4 [1..]
@@ -518,7 +522,10 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                         | (title,txt) <-
                                 [ ("Local Pages", show $ length $ links)
                                 , ("External Links",show $ length $ external_links)
-                                , ("Broken Internal Links",show $ length $ nub $ concat $  map ld_localURLs bad_links)
+                                , ("Broken Internal Links",show $ length $ nub
+                                                          $ filter fst
+                                                          $ concat
+                                                          $ map ld_localURLs checked_links)
                                 , ("Broken External Links",show $ length $
                                                            [ ()
                                                            | (_,url) <- external_links
