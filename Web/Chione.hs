@@ -676,7 +676,9 @@ redirectPage htmlFile = buildURL htmlFile $ \ out -> do
 ----------------------
 
 relativeURL :: Int -> String -> String
-relativeURL n ('/':rest) = replaceExtension (local_prefix </> rest) "html"
+relativeURL n ('/':rest)
+        | null (takeExtension rest) = replaceExtension (local_prefix </> rest) "html"
+        | otherwise                 = local_prefix </> rest
   where local_prefix = concat (take n $ repeat "../")
 relativeURL n other
   | "http://" `isPrefixOf` other
