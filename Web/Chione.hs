@@ -10,7 +10,6 @@ module Web.Chione
          , findBuildTargets
          -- * Utils
          , makeHtmlRedirect
-         , isAdminFile
          -- * Link and URL issues
          , findLinks
          , LinkData(..)
@@ -40,7 +39,7 @@ import Control.Applicative hiding ((*>))
 import Data.List
 import Data.Char
 import Data.Time.Clock
-
+import System.Exit
 
 import Language.KURE.Walker
 import Language.KURE.Debug
@@ -185,28 +184,44 @@ makeHtmlRedirect out target = do
 
 -----------------------------------------------
 
+data UploadedPage
+        = NotAttempted  -- -
+        | NotPresent    -- cross
+        | Different     -- !
+        | Same          -- tick
+        deriving (Show,Enum)
+
 data LinkData a = LinkData
         { ld_pageName :: String
+        , ld_bytes :: Int               -- bytes in file
+        , ld_wc    :: Int               -- words of text
+        , ld_match :: UploadedPage      -- does the web version match?
         , ld_localURLs :: a
         , ld_remoteURLs :: a
         }
         deriving Show
 
 instance Functor LinkData where
-        fmap f (LinkData n a b) = LinkData n (f a) (f b)
+        fmap f (LinkData n by wc ma a b) = LinkData n by wc ma (f a) (f b)
 
 -- | Reads an HTML file, finds all the local and global links.
 -- The local links are normalize to the site-root.
-findLinks :: String -> Action (LinkData [String])
-findLinks nm = do
-        let name = dropDirectory1 (dropDirectory1 nm)
+findLinks :: String -> String -> IO (LinkData [String])
+findLinks prefix name = do
+        txt <- readFile (html_dir </> name)
+        let tree = parseHTML name txt
 
-        txt <- readFile' nm
-        let tree = parseHTML nm txt
+        let urls = fromKureM error $ KURE.apply (extractT $ collectT $ promoteT' $ findURL) mempty tree
 
-        urls <- applyFPGM (extractT $ collectT $ promoteT' $ findURL) tree
+        let txt_lens = fromKureM error $ KURE.apply (extractT $ collectT $ promoteT' $ textT (length . words)) mempty tree
 
---        liftIO $ print urls
+        -- now try get the remote version
+
+        remote <- getURLContent $ prefix ++ "/" ++ name
+        let rem_stat = case remote of
+                Nothing -> NotPresent
+                Just txt' | txt' == txt -> Same
+                          | otherwise   -> Different
 
         -- What about ftp?
         let isRemote url = ("http://" `isPrefixOf` url)
@@ -219,8 +234,12 @@ findLinks nm = do
 
         let globals = filter isRemote urls
 
-        return $ LinkData name locals globals
-
+        return $ LinkData name
+                          (length txt)
+                          (sum txt_lens)
+                          rem_stat
+                          locals
+                          globals
 
 data URLResponse
         = URLResponse { respCodes :: [Int], respTime :: Int }
@@ -272,21 +291,51 @@ getURLResponse url = do
 
 ----------------------------------------------------------
 
-isAdminFile :: String -> Bool
-isAdminFile nm = takeDirectory (dropDirectory1 nm) == "admin"
+getURLContent :: String -> IO (Maybe String)
+getURLContent url = do
+        (res,out,err) <- readProcessWithExitCode "curl"
+                                 ["-A","Other","-L","-m","5","-s",
+                                  url]
+                                ""
+        case res of
+          ExitSuccess -> return (Just out)
+          _           -> return Nothing
 
-generateStatus :: [String] -> Action HTML
-generateStatus inp = do
-        let files = [ html_dir </> nm0
-                    | (nm0) <- inp
-                    , not (isAdminFile nm0)
+
+-- Case sensitive version of doesFileExist. Important on OSX, which ignores case
+-- then break the web server will use case.
+doesCasedFileExist :: String -> IO Bool
+doesCasedFileExist file = do
+        ok <- Directory.doesFileExist file
+        if not ok then return False else recUp file
+  where
+          recUp "."  = return True
+          recUp path = do
+             files <- getDirectoryContents (takeDirectory path)
+             if takeFileName path `elem` files then recUp (takeDirectory path) else return False
+
+
+----------------------------------------------------------
+
+
+generateStatus :: String -> [String] -> Action HTML
+generateStatus prefix inp = do
+        let files = [ nm0
+                    | nm0 <- inp
                     , "//*.html" ?== nm0
                     ]
 
-        links <- mapM findLinks files
+        need [ html_dir </> file
+             | file <- files
+             ]
+        links <- liftIO $ withPool 32
+              $ \ pool -> parallelInterleaved pool
+              [ findLinks prefix file
+              | file <- files
+              ]
 
         good_local_links <- liftM concat $ sequence
-                         [ do b <- liftIO $ Directory.doesFileExist $ (build_dir </> "html" </> file)
+                         [ do b <- liftIO $ doesCasedFileExist $ (html_dir </> file)
                               if b then return [file]
                                    else return []
                          | file <- nub (concatMap ld_localURLs links)
@@ -318,7 +367,7 @@ generateStatus inp = do
                          | url <- take 500 $ nub (concatMap ld_remoteURLs links)
                          ]
 
-        liftIO$ print $ external_links
+--        liftIO$ print $ external_links
 
 {-
    curl -s --head http://www.haskell.org/
@@ -353,6 +402,19 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                  where len = length xs
                        label = if len == 0 then "badge-success" else "badge-important"
 
+        let up txt tag = element "span" [attr "class" $ "badge badge-" ++ tag] txt
+
+        let showUpload NotAttempted = text "-"
+            showUpload NotPresent   = up tick "important"
+              where
+                 tick = element "i" [attr "class" "icon-remove icon-white"] $ zero --  icon-white"] $ zero
+            showUpload Different    = up tick "warning"
+              where
+                 tick = element "i" [attr "class" "icon-refresh icon-white"] $ zero --  icon-white"] $ zero
+            showUpload Same         = up tick "success"
+              where
+                 tick = element "i" [attr "class" "icon-ok icon-white"] $ zero --  icon-white"] $ zero
+
         let bad_links = map findBadLinks links
 
             br = element "br" [] mempty
@@ -361,6 +423,9 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                         [ element "tr" [] $ mconcat
                           [ element "th" [] $ text $ "#"
                           , element "th" [] $ text $ "Page Name"
+                          , element "th" [attr "style" "text-align: right"] $ text $ "size"
+                          , element "th" [attr "style" "text-align: right"] $ text $ "words"
+                          , element "th" [attr "style" "text-align: center"] $ text $ "up"
                           , element "th" [attr "style" "text-align: right"] $ mconcat [text "local",br,text "links"]
                           , element "th" [attr "style" "text-align: right"] $ mconcat [text "extern",br,text "links"]
                           , element "th" [attr "style" "text-align: right"] $ mconcat [text "local",br,text "fail"]
@@ -373,6 +438,9 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                           , element "td" []
                             $ element "a" [attr "href" (ld_pageName page) ]
                               $ text $ shorten 50 $ ld_pageName page
+                          , element "td" [attr "style" "text-align: right"] $ text $ show $ ld_bytes page
+                          , element "td" [attr "style" "text-align: right"] $ text $ show $ ld_wc page
+                          , element "td" [attr "style" "text-align: center"] $ showUpload $ ld_match page
                           , element "td" [attr "style" "text-align: right"] $ ld_localURLs page
                           , element "td" [attr "style" "text-align: right"] $ ld_remoteURLs page
                           , element "td" [attr "style" "text-align: right"] $ ld_localURLs page_bad
@@ -386,7 +454,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                         | (n,page,page_bad,page_bad') <- zip4 [1..]
                                                     (map (fmap markupCount) links)
                                                     (map (fmap markupCount') bad_links)
-                                                    (bad_links)
+                                                    bad_links
                         ]
 
         let colorURLCode :: URLResponse -> HTML
@@ -420,7 +488,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                           [ element "td" [attr "style" "text-align: right"] $ text $ show n
                           , element "td" []
                             $ element "a" [attr "href" url ]
-                              $ text $ shorten 50 $ url
+                              $ text $ shorten 72 $ url
                           , element "td" [attr "style" "text-align: right"]
                             $ colorURLCode resp
                           , element "td" [attr "style" "text-align: right"] $ text $ show tm
@@ -431,9 +499,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
         let f = element "div" [attr "class" "row"] . element "div" [attr "class" "span10  offset1"]
 
         return $ f $ mconcat
-                [ element "h2" [] $ text "Status"
-                , text $ "Nominal"
-                , element "h2" [] $ text "Pages"
+                [ element "h2" [] $ text "Pages"
                 , page_tabel
                 , element "h2" [] $ text "External URLs"
                 , link_tabel
@@ -482,11 +548,11 @@ wrapTemplateFile fullPath count = rewrite $ \ c inside -> do
 
 ---------------------------------------------------------
 
-makeStatus :: String -> Rules ()
-makeStatus dir = ("_make" </> dir </> "status.html" ==) ?> \ out -> do
+makeStatus :: String -> String -> Rules ()
+makeStatus prefix dir = ("_make" </> dir </> "status.html" ==) ?> \ out -> do
                 contents :: [String] <- targetPages
                 let contents' = filter (/= "status.html") $ contents
-                status <- generateStatus contents'
+                status <- generateStatus prefix contents'
                 writeFileChanged out $ show $ status
 
 -------------------------------------------------------------------------
@@ -523,7 +589,7 @@ copyPage urlFile = buildURL urlFile $ \ out -> do
 htmlPage :: String -> String -> R HTML -> MyURL
 htmlPage htmlFile srcDir processor = buildURL htmlFile $ \ out -> do
         let srcName = build_dir </> srcDir </> dropDirectory1 (dropDirectory1 out)
-        liftIO $ print (htmlFile,srcDir,srcName,out)
+--        liftIO $ print (htmlFile,srcDir,srcName,out)
         need [ srcName ]
         src <- readFile' srcName
         let contents = parseHTML srcName src
@@ -657,4 +723,6 @@ instance MonadCatch FPGM where
                 f r
 --instance MonadIO FPGM where
 --        liftIO m = FPGM (FPGMResult <$> m)
+
+--------------------------------------------------
 
