@@ -252,8 +252,9 @@ getURLResponse url | "http://scholar.google.com/" `isPrefixOf` url = return $ UR
 getURLResponse url = do
       urlRep <- response1
       case respCodes urlRep of
-         [405] -> do urlRep' <- response2
-                     return $ URLResponse ([405] ++ respCodes urlRep') (respTime urlRep + respTime urlRep')
+         [n] | n `div` 100 == 4
+             -> do urlRep' <- response2
+                   return $ URLResponse ([n] ++ respCodes urlRep') (respTime urlRep + respTime urlRep')
          _ -> return urlRep
   where
       response1 = do
