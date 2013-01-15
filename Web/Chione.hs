@@ -527,7 +527,7 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
                                 [ ("Local Pages", show $ length $ links)
                                 , ("External Links",show $ length $ external_links)
                                 , ("Broken Internal Links",show $ length $ nub
-                                                          $ filter fst
+                                                          $ filter (not . fst)
                                                           $ concat
                                                           $ map ld_localURLs checked_links)
                                 , ("Broken External Links",show $ length $
