@@ -260,7 +260,7 @@ getURLResponse url = do
       response1 = do
         tm1 <- getCurrentTime
         (res,out,err) <- readProcessWithExitCode "curl"
-                                ["-A","Other","-L","-m","5","-s","--head",url]
+                                ["-A","Other","-L","-m","10","-s","--head",url]
                                 ""
         tm2 <- getCurrentTime
         let code = concat
@@ -275,7 +275,7 @@ getURLResponse url = do
       response2 = do
         tm1 <- getCurrentTime
         (res,out,err) <- readProcessWithExitCode "curl"
-                                 ["-A","Other","-L","-m","5","-s",
+                                 ["-A","Other","-L","-m","10","-s",
                                   "-o","/dev/null","-i","-w","%{http_code}",
                                   url]
                                 ""
