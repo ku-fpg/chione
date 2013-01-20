@@ -248,7 +248,7 @@ data URLResponse
 -- | Check external link for viability. Returns time in ms, and list of codes returned; redirections are followed.
 
 getURLResponse :: String -> IO URLResponse
-getURLResponse url | "http://scholar.google.com/" `isPrefixOf` url = return $ URLResponse [200] 999
+-- getURLResponse url | "http://scholar.google.com/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url = do
       urlRep <- response1
       case respCodes urlRep of
@@ -592,6 +592,7 @@ wrapTemplateFile fullPath count = rewrite $ \ c inside -> do
 
 makeStatus :: String -> String -> Rules ()
 makeStatus prefix dir = ("_make" </> dir </> "status.html" ==) ?> \ out -> do
+	        alwaysRerun	  -- we want to retest these each time
                 contents :: [String] <- targetPages
                 let contents' = filter (/= "status.html") $ contents
                 status <- generateStatus prefix contents'
