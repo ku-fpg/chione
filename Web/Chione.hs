@@ -53,7 +53,10 @@ import Text.HTML.KURE
 
 import Data.Monoid
 
-import Control.Concurrent.ParallelIO.Local
+import Control.Concurrent.ParallelIO.Local hiding (parallelInterleaved)
+
+import Control.Concurrent.ParallelIO.Local (parallelInterleaved)
+-- parallelInterleaved _ = sequence
 
 -- | Name of location for all generated files.
 -- Can always be removed safely, and rebuilt.
@@ -297,7 +300,7 @@ getURLContent url = do
         (res,out,err) <- readProcessWithExitCode "curl"
                                  ["-A","Other","-L","-m","5","-s",
                                   url]
-                                ""
+                                "" `E.catch` (\ (e :: E.SomeException) -> return (ExitFailure 0,"",""))
         case res of
           ExitSuccess -> return (Just out)
           _           -> return Nothing
@@ -645,7 +648,7 @@ getRedirect = askOracle . Redirect'
 chioneRules :: [MyURL] -> Rules()
 chioneRules urls = do
         mapM_ urlRules urls
-        action $ liftIO $ print ("chioneRules", map (\ (MyURL file _) -> html_dir </> file) $ urls)
+--        action $ liftIO $ print ("chioneRules", map (\ (MyURL file _) -> html_dir </> file) $ urls)
         action $ need $ map (\ (MyURL file _) -> html_dir </> file) $ urls
         addOracle $ \ Targets{} -> return $ map (\ (MyURL file _) -> file) $ urls
         return ()
