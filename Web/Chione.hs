@@ -162,12 +162,15 @@ insertTeaser = do
                                         <+ return (text ("Can not find teaser in " ++ sub_content)))
                                         sub_html
 
-                    return $ mconcat
+                    return $ element "div" [attr "class" "teaser-copy"]
+                           $ mconcat
                            [ inside_content
-                           , element "a" [ attr "href" ('/':url)
-                                       , attr "class" "label"
-                                       ]
-                                       inside
+                           , element "a" [ attr "href" ('/':url) ]
+                           $ mconcat
+                                [ element "i" [attr "class" "icon-hand-right"] zero
+                                , text " "
+                                , inside
+                                ]
                            ]
 
   where
