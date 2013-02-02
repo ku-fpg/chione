@@ -25,7 +25,7 @@ module Web.Chione
         , module Web.Chione     -- include everything right now
         ) where
 
-import Development.Shake hiding (getDirectoryContents)
+import Development.Shake hiding (getDirectoryContents, doesDirectoryExist)
 import Development.Shake.FilePath
 import Development.Shake.Classes
 
