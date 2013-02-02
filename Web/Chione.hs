@@ -303,7 +303,9 @@ getURLContent url = do
         (res,out,err) <- readProcessWithExitCode "curl"
                                  ["-A","Other","-L","-m","5","-s",
                                   url]
-                                "" `E.catch` (\ (e :: E.SomeException) -> return (ExitFailure 0,"",""))
+                                "" `E.catch` (\ (e :: E.SomeException) -> do
+                                        print e
+                                        return (ExitFailure 0,"",""))
         case res of
           ExitSuccess -> return (Just out)
           _           -> return Nothing
