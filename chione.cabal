@@ -1,5 +1,5 @@
 Name:                chione
-Version:             0.2.1
+Version:             0.2.1.1
 Synopsis:            Static web page generator
 Description:         This package provides utilties that help with
                      the generation of static web pages.
