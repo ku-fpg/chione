@@ -53,6 +53,9 @@ import Text.HTML.KURE
 
 import Data.Monoid
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.UTF8 as UTF8
+
 import Control.Concurrent.ParallelIO.Local hiding (parallelInterleaved)
 
 import Control.Concurrent.ParallelIO.Local (parallelInterleaved)
@@ -214,8 +217,8 @@ instance Functor LinkData where
 -- The local links are normalize to the site-root.
 findLinks :: String -> String -> IO (LinkData [String])
 findLinks prefix name = do
-        txt <- readFile (html_dir </> name)
-        let tree = parseHTML name txt
+        txt <- BS.readFile (html_dir </> name)
+        let tree = parseHTML name (UTF8.toString txt)
 
         let urls = fromKureM error $ KURE.apply (extractT $ collectT $ promoteT' $ findURL) mempty tree
 
@@ -233,15 +236,23 @@ findLinks prefix name = do
         let isRemote url = ("http://" `isPrefixOf` url)
                         || ("https://" `isPrefixOf` url)
 
+        let isNotLink url = ("mailto:" `isPrefixOf` url)
+                                || (all (`elem` "./") url)      -- not quite right
+
         let locals = [ takeDirectory name </> url
                      | url <- urls
+                     , not (isNotLink url)
                      , not (isRemote url)
                      ]
 
-        let globals = filter isRemote urls
+        let globals = [ url
+                      | url <- urls
+                      , not (isNotLink url)
+                      , isRemote url
+                      ]
 
         return $ LinkData name
-                          (length txt)
+                          (BS.length txt)
                           (sum txt_lens)
                           rem_stat
                           locals
@@ -255,6 +266,10 @@ data URLResponse
 
 getURLResponse :: String -> IO URLResponse
 -- getURLResponse url | "http://scholar.google.com/" `isPrefixOf` url = return $ URLResponse [200] 999
+getURLResponse url | "http://dl.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
+getURLResponse url | "http://doi.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
+getURLResponse url | "http://dx.doi.org/" `isPrefixOf` url = return $ URLResponse [200] 999
+getURLResponse url | "http://portal.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url = do
       urlRep <- response1
       case respCodes urlRep of
@@ -298,7 +313,8 @@ getURLResponse url = do
 
 ----------------------------------------------------------
 
-getURLContent :: String -> IO (Maybe String)
+getURLContent :: String -> IO (Maybe BS.ByteString)
+{-
 getURLContent url = do
         (res,out,err) <- readProcessWithExitCode "curl"
                                  ["-A","Other","-L","-m","5","-s",
@@ -309,6 +325,24 @@ getURLContent url = do
         case res of
           ExitSuccess -> return (Just out)
           _           -> return Nothing
+-}
+getURLContent url = (do
+        (inp,out,err,pid) <- runInteractiveProcess "curl"
+                                 ["-A","Other","-L","-m","5","-s",
+                                  url]
+                                  Nothing
+                                  Nothing
+        txt <- BS.hGetContents out
+        res <- waitForProcess pid
+        case res of
+          ExitSuccess -> return (Just txt)
+          _           -> return Nothing)
+                                `E.catch` (\ (e :: E.SomeException) -> do
+                                                print e
+                                                return Nothing)
+
+
+
 
 
 -- Case sensitive version of doesFileExist. Important on OSX, which ignores case
@@ -327,8 +361,9 @@ doesCasedFileExist file = do
 ----------------------------------------------------------
 
 
-generateStatus :: String -> [String] -> Action HTML
-generateStatus prefix inp = do
+generateStatus :: String -> [String] -> IO HTML
+generateStatus prefix files = do
+{-
         let files = [ nm0
                     | nm0 <- inp
                     , "//*.html" ?== nm0
@@ -337,14 +372,15 @@ generateStatus prefix inp = do
         need [ html_dir </> file
              | file <- files
              ]
-        links <- liftIO $ withPool 32
+-}
+        links <- withPool 32
               $ \ pool -> parallelInterleaved pool
               [ findLinks prefix file
               | file <- files
               ]
 
         good_local_links <- liftM concat $ sequence
-                         [ do b <- liftIO $ doesCasedFileExist $ (html_dir </> file)
+                         [ do b <- doesCasedFileExist $ (html_dir </> file)
                               if b then return [file]
                                    else return []
                          | file <- nub (concatMap ld_localURLs links)
@@ -368,7 +404,7 @@ generateStatus prefix inp = do
 -}
 
         let fake = False
-        external_links <- liftIO $ withPool 32
+        external_links <- withPool 32
                 $ \ pool -> parallelInterleaved pool
                          [ do resp <- getURLResponse url
                               putStrLn $ "examining " ++ url ++ " ==> " ++ show resp
@@ -389,10 +425,6 @@ Content-Type: text/html; charset=iso-8859-1
 
 orange:fpg-web andy$ curl -s --head http://www.haskell.org/
 -}
-
-        let goodLinkCode :: URLResponse -> Bool
-            goodLinkCode (URLResponse [] _) = False
-            goodLinkCode (URLResponse xs _) = last xs == 200
 
             -- bad links get False, good links get true
         let findGoodLinks :: LinkData [String] -> LinkData [(Bool,String)]
@@ -434,7 +466,8 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
 
             br = element "br" [] mempty
 
-        let page_tabel = element "table" [] $ mconcat $
+        let page_tabel = element "div" [attr "class" "page-table"]
+                       $ element "table" [] $ mconcat $
                         [ element "tr" [] $ mconcat
                           [ element "th" [] $ text $ "#"
                           , element "th" [] $ text $ "Page Name"
@@ -500,7 +533,8 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
         let timing (_,URLResponse _ t1) (_,URLResponse _ t2) = t1 `compare` t2
         let correctness (_,u1) (_,u2) = goodLinkCode u1 `compare` goodLinkCode u2
 
-        let link_tabel = element "table" [] $ mconcat $
+        let link_tabel = element "div" [attr "class" "link-table"]
+                       $ element "table" [] $ mconcat $
                         [ element "tr" [] $ mconcat
                           [ element "th" [] $ text $ "#"
                           , element "th" [] $ text $ "External URL"
@@ -526,7 +560,8 @@ orange:fpg-web andy$ curl -s --head http://www.haskell.org/
         let f = element "div" [attr "class" "row"] . element "div" [attr "class" "span10  offset1"]
 
         let summary_table =
-                  element "div" [attr "class" "row"] . element "div" [attr "class" "span4"]
+                  element "div" [attr "class" "summary-table"]
+                $ element "div" [attr "class" "row"] . element "div" [attr "class" "span4"]
                 $ element "table" [] $ mconcat $
                         [ element "tr" [] $ mconcat
                           [ element "th" [] $ text title
@@ -603,7 +638,14 @@ makeStatus prefix dir = ("_make" </> dir </> "status.html" ==) ?> \ out -> do
 	        alwaysRerun	  -- we want to retest these each time
                 contents :: [String] <- targetPages
                 let contents' = filter (/= "status.html") $ contents
-                status <- generateStatus prefix contents'
+                let files = [ nm0
+                            | nm0 <- contents'
+                            , "//*.html" ?== nm0
+                            ]
+                need [ html_dir </> file
+                     | file <- files
+                     ]
+                status <- liftIO $ generateStatus prefix files
                 writeFileChanged out $ show $ status
 
 -------------------------------------------------------------------------
@@ -708,8 +750,14 @@ divSpanExpand macro = do
 ---         () <- trace ("$$$$$$$$$$$$$$$$$ trace: " ++ show (tag,cls)) $ return ()
          constT $ macro cls
 
+
 -----------------------------------------------
 
+goodLinkCode :: URLResponse -> Bool
+goodLinkCode (URLResponse [] _) = False
+goodLinkCode (URLResponse xs _) = last xs == 200
+
+-----------------------------------------------
 
 newtype FPGM a = FPGM { runFPGM :: IO (FPGMResult a) }
 
