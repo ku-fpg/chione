@@ -19,10 +19,10 @@ Source-repository head
 Library
   Exposed-modules:     Web.Chione
                        Web.Chione.BibTeX
-                       
+
   Build-depends:       base >= 4.6 && < 5.0,
                        html-kure >= 0.2,
-                       kure >= 2.6.14,
+                       kure >= 2.14.4,
                        parallel-io >= 0.3.2.2,
                        process >= 1.1.0.2,
                        time >= 1.4.0.1,
