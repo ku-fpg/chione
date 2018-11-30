@@ -268,7 +268,7 @@ getURLResponse :: String -> IO URLResponse
 -- getURLResponse url | "http://scholar.google.com/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url | "http://dl.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url | "http://doi.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
-getURLResponse url | "http://dx.doi.org/" `isPrefixOf` url = return $ URLResponse [200] 999
+getURLResponse url | "https://doi.org/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url | "http://portal.acm.org/" `isPrefixOf` url = return $ URLResponse [200] 999
 getURLResponse url = do
       urlRep <- response1
